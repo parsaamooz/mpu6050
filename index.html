@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MPU6500 Sensor Simulation with Arduino</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f0f0f0;
+            overflow: hidden;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        .header {
+            background-color: #2c3e50;
+            color: white;
+            padding: 10px;
+            text-align: center;
+        }
+        .content {
+            display: flex;
+            flex: 1;
+            padding: 10px;
+            gap: 10px;
+        }
+        .simulation-panel {
+            flex: 3;
+            background-color: white;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            position: relative;
+            overflow: hidden;
+        }
+        .controls-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .arduino-section, .sensor-section, .oled-section {
+            background-color: white;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            padding: 15px;
+        }
+        .arduino-section {
+            flex: 1;
+        }
+        .sensor-section {
+            flex: 1;
+        }
+        .oled-section {
+            flex: 2;
+        }
+        .oled-display {
+            background-color: #000;
+            color: #0f0;
+            font-family: monospace;
+            padding: 10px;
+            border-radius: 5px;
+            height: 150px;
+            overflow: hidden;
+        }
+        .zoom-controls {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            z-index: 100;
+            background: rgba(255,255,255,0.7);
+            padding: 5px;
+            border-radius: 5px;
+        }
+        button {
+            padding: 5px 10px;
+            margin: 0 5px;
+            cursor: pointer;
+        }
+        .graph-container {
+            height: 150px;
+            margin-top: 10px;
+        }
+        h3 {
+            margin-top: 0;
+            color: #2c3e50;
+        }
+        .code {
+            background-color: #f5f5f5;
+            padding: 5px;
+            border-radius: 3px;
+            font-family: monospace;
+            font-size: 12px;
+            margin: 5px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>MPU6500 Sensor Simulation with Arduino</h1>
+            <p>Move your mouse to rotate the 3D cube and see the sensor data on the OLED display</p>
+        </div>
+        <div class="content">
+            <div class="simulation-panel" id="simulation">
+                <div class="zoom-controls">
+                    <button id="zoom-in">Zoom In</button>
+                    <button id="zoom-out">Zoom Out</button>
+                    <button id="reset-view">Reset View</button>
+                </div>
+            </div>
+            <div class="controls-panel">
+                <div class="arduino-section">
+                    <h3>Arduino Setup</h3>
+                    <div class="code">
+                        #include &lt;Wire.h&gt;<br>
+                        #include &lt;Adafruit_MPU6050.h&gt;<br>
+                        #include &lt;Adafruit_SSD1306.h&gt;<br><br>
+                        
+                        Adafruit_MPU6050 mpu;<br>
+                        Adafruit_SSD1306 display(128, 64, &Wire);<br><br>
+                        
+                        void setup() {<br>
+                        &nbsp;&nbsp;Serial.begin(115200);<br>
+                        &nbsp;&nbsp;mpu.begin();<br>
+                        &nbsp;&nbsp;display.begin(SSD1306_SWITCHCAPVCC, 0x3C);<br>
+                        &nbsp;&nbsp;display.clearDisplay();<br>
+                        &nbsp;&nbsp;display.setTextSize(1);<br>
+                        &nbsp;&nbsp;display.setTextColor(SSD1306_WHITE);<br>
+                        }
+                    </div>
+                </div>
+                <div class="sensor-section">
+                    <h3>MPU6500 Sensor Data</h3>
+                    <div class="graph-container">
+                        <canvas id="sensorGraph"></canvas>
+                    </div>
+                    <div>
+                        <p>Acceleration (m/s²):</p>
+                        <p>X: <span id="accel-x">0.00</span>, Y: <span id="accel-y">0.00</span>, Z: <span id="accel-z">0.00</span></p>
+                        <p>Gyroscope (rad/s):</p>
+                        <p>X: <span id="gyro-x">0.00</span>, Y: <span id="gyro-y">0.00</span>, Z: <span id="gyro-z">0.00</span></p>
+                    </div>
+                </div>
+                <div class="oled-section">
+                    <h3>OLED Display Output</h3>
+                    <div class="oled-display" id="oled">
+                        MPU6500 Data:<br>
+                        Accel: 0.00 0.00 0.00<br>
+                        Gyro: 0.00 0.00 0.00<br>
+                        Temp: 0.00°C<br>
+                        -----------------<br>
+                        Move mouse to<br>
+                        simulate sensor
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Initialize Three.js scene
+        const container = document.getElementById('simulation');
+        const width = container.clientWidth;
+        const height = container.clientHeight;
+
+        // Scene setup
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 1000);
+        camera.position.z = 5;
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(width, height);
+        container.appendChild(renderer.domElement);
+
+        // Create a cube
+        const geometry = new THREE.BoxGeometry(1, 1, 1);
+        const edges = new THREE.EdgesGeometry(geometry);
+        const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x000000 }));
+        const material = new THREE.MeshBasicMaterial({ 
+            color: 0x3498db,
+            transparent: true,
+            opacity: 0.3
+        });
+        const cube = new THREE.Mesh(geometry, material);
+        cube.add(line);
+        scene.add(cube);
+
+        // Create a sphere (fill ball) inside the cube
+        const sphereGeometry = new THREE.SphereGeometry(0.45, 32, 32);
+        const sphereMaterial = new THREE.MeshBasicMaterial({ 
+            color: 0xe74c3c,
+            transparent: true,
+            opacity: 0.8
+        });
+        const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
+        
+        // Add colored markers to the sphere for orientation
+        const markerGeometry = new THREE.SphereGeometry(0.05, 16, 16);
+        const markers = [];
+        
+        // Create markers at different positions
+        const positions = [
+            {x: 0.45, y: 0, z: 0, color: 0xff0000}, // Right (red)
+            {x: -0.45, y: 0, z: 0, color: 0x00ff00}, // Left (green)
+            {x: 0, y: 0.45, z: 0, color: 0x0000ff}, // Top (blue)
+            {x: 0, y: -0.45, z: 0, color: 0xffff00}, // Bottom (yellow)
+            {x: 0, y: 0, z: 0.45, color: 0xff00ff}, // Front (magenta)
+            {x: 0, y: 0, z: -0.45, color: 0x00ffff} // Back (cyan)
+        ];
+        
+        positions.forEach(pos => {
+            const markerMaterial = new THREE.MeshBasicMaterial({ color: pos.color });
+            const marker = new THREE.Mesh(markerGeometry, markerMaterial);
+            marker.position.set(pos.x, pos.y, pos.z);
+            sphere.add(marker);
+            markers.push(marker);
+        });
+        
+        cube.add(sphere);
+
+        // Add axes helper
+        const axesHelper = new THREE.AxesHelper(2);
+        scene.add(axesHelper);
+
+        // Add grid helper
+        const gridHelper = new THREE.GridHelper(10, 10);
+        scene.add(gridHelper);
+
+        // Mouse controls
+        let isDragging = false;
+        let previousMousePosition = {
+            x: 0,
+            y: 0
+        };
+
+        container.addEventListener('mousedown', () => {
+            isDragging = true;
+        });
+
+        container.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+
+        container.addEventListener('mousemove', (event) => {
+            if (!isDragging) return;
+            
+            const deltaMove = {
+                x: event.clientX - previousMousePosition.x,
+                y: event.clientY - previousMousePosition.y
+            };
+
+            // Rotate cube based on mouse movement
+            cube.rotation.y += deltaMove.x * 0.01;
+            cube.rotation.x += deltaMove.y * 0.01;
+
+            // Update sensor data display
+            updateSensorData(cube.rotation.x, cube.rotation.y, cube.rotation.z);
+
+            previousMousePosition = {
+                x: event.clientX,
+                y: event.clientY
+            };
+        });
+
+        // Zoom controls
+        document.getElementById('zoom-in').addEventListener('click', () => {
+            camera.position.z -= 0.5;
+        });
+
+        document.getElementById('zoom-out').addEventListener('click', () => {
+            camera.position.z += 0.5;
+        });
+
+        document.getElementById('reset-view').addEventListener('click', () => {
+            camera.position.z = 5;
+            cube.rotation.set(0, 0, 0);
+            updateSensorData(0, 0, 0);
+        });
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            const width = container.clientWidth;
+            const height = container.clientHeight;
+            camera.aspect = width / height;
+            camera.updateProjectionMatrix();
+            renderer.setSize(width, height);
+        });
+
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        // Initialize sensor data chart
+        const ctx = document.getElementById('sensorGraph').getContext('2d');
+        const sensorChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: Array(20).fill(''),
+                datasets: [
+                    {
+                        label: 'Accel X',
+                        data: Array(20).fill(0),
+                        borderColor: 'rgba(255, 99, 132, 1)',
+                        backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                        tension: 0.1
+                    },
+                    {
+                        label: 'Accel Y',
+                        data: Array(20).fill(0),
+                        borderColor: 'rgba(54, 162, 235, 1)',
+                        backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                        tension: 0.1
+                    },
+                    {
+                        label: 'Accel Z',
+                        data: Array(20).fill(0),
+                        borderColor: 'rgba(75, 192, 192, 1)',
+                        backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                        tension: 0.1
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        min: -10,
+                        max: 10
+                    }
+                },
+                animation: {
+                    duration: 0
+                },
+                elements: {
+                    point: {
+                        radius: 0
+                    }
+                }
+            }
+        });
+
+        // Update sensor data and OLED display
+        function updateSensorData(x, y, z) {
+            // Convert rotation to acceleration values for simulation
+            const accelX = (Math.sin(y) * 9.8).toFixed(2);
+            const accelY = (Math.sin(x) * 9.8).toFixed(2);
+            const accelZ = (Math.cos(x) * Math.cos(y) * 9.8).toFixed(2);
+            
+            // Gyroscope values are based on rotation speed (simplified)
+            const gyroX = (x * 0.5).toFixed(2);
+            const gyroY = (y * 0.5).toFixed(2);
+            const gyroZ = (z * 0.5).toFixed(2);
+            
+            // Temperature (constant in this simulation)
+            const temp = 25.0;
+            
+            // Update numeric displays
+            document.getElementById('accel-x').textContent = accelX;
+            document.getElementById('accel-y').textContent = accelY;
+            document.getElementById('accel-z').textContent = accelZ;
+            document.getElementById('gyro-x').textContent = gyroX;
+            document.getElementById('gyro-y').textContent = gyroY;
+            document.getElementById('gyro-z').textContent = gyroZ;
+            
+            // Update OLED display
+            const oled = document.getElementById('oled');
+            oled.innerHTML = `MPU6500 Data:<br>
+Accel: ${accelX} ${accelY} ${accelZ}<br>
+Gyro: ${gyroX} ${gyroY} ${gyroZ}<br>
+Temp: ${temp}°C<br>
+-----------------<br>
+Move mouse to<br>
+simulate sensor`;
+            
+            // Update chart data
+            sensorChart.data.datasets[0].data.shift();
+            sensorChart.data.datasets[0].data.push(parseFloat(accelX));
+            
+            sensorChart.data.datasets[1].data.shift();
+            sensorChart.data.datasets[1].data.push(parseFloat(accelY));
+            
+            sensorChart.data.datasets[2].data.shift();
+            sensorChart.data.datasets[2].data.push(parseFloat(accelZ));
+            
+            sensorChart.update();
+        }
+    </script>
+</body>
+</html>
